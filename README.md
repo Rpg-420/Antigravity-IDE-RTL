@@ -1,6 +1,6 @@
 # Antigravity-IDE-RTL 🚀
 
-Smart **RTL (right-to-left) alignment + Persian font** injector for the **Antigravity IDE** (Google's VS Code-based agent IDE) on **Windows**.
+Smart **RTL (right-to-left) alignment + Persian fonts (Vazirmatn / IRANSans)** injector for the **Antigravity IDE** (Google's VS Code-based agent IDE) on **Windows**.
 
 One click → Persian font (IRANSans / Vazirmatn) across the whole UI **including the AI agent chat**, right-aligned Persian paragraphs, icons and the code editor untouched.
 
@@ -27,9 +27,9 @@ This installer solves **all of the above**.
 
 ## What it does
 
-1. **Loads Persian fonts into the live Windows session** (IRANSans from `D:\Font\IRANSans`, Vazirmatn if present) via `AddFontResource` + `WM_FONTCHANGE` — plus copies + registers per-user.
+1. **Loads Persian fonts into the live Windows session** — Vazirmatn is auto-downloaded (OFL); IRANSans used only if present locally via `AddFontResource` + `WM_FONTCHANGE` — plus copies + registers per-user.
 2. **Writes a renderer preload** (`~/.antigravity-rtl-preload.js`) that injects the CSS at document start:
-   - `font-family: 'IRANSans', 'Vazirmatn'` everywhere (⚠ protected: no naive `*` reset — see exclusions)
+   - `font-family: 'Vazirmatn', 'IRANSans'` everywhere (⚠ protected: no naive `*` reset — see exclusions)
    - **Icon fonts restored**: `.codicon`, `[class*="codicon-"]`, `.seti-icon` stay `codicon`
    - **Editor & terminal stay monospace + LTR**: `.monaco-editor`, `.xterm`
    - **Persian paragraphs right-aligned**: `unicode-bidi: plaintext; text-align: start`
@@ -46,7 +46,7 @@ Nothing here needs Administrator rights.
 
 ### One click
 
-1. Put your font files in `D:\Font\IRANSans` (or edit `$fontSources` in the script).
+1. Nothing to prepare — the installer downloads **Vazirmatn** (OFL-licensed) from the official repo automatically. (Optional: if you have IRANSans locally at `D:\Font\IRANSans`, it is used as a bonus fallback.)
 2. Double-click **`Install-RTL.cmd`** (or run `install_oneclick.ps1`).
 3. **Fully close Antigravity IDE** (check Task Manager!) and reopen it.
 
