@@ -76,14 +76,28 @@ Log "fonts ready."
 # ---------- 2. Preload file (the actual CSS injector) ----------
 Log "2/5 Writing renderer preload..."
 $fontStack = "'Vazirmatn', 'IRANSans', sans-serif"
-$cssText = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }" + [char]10 +
-  ".codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }" + [char]10 +
-  ".monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }" + [char]10 +
-  "p, li, h1, h2, h3, h4, h5, h6, textarea, label, div, span { unicode-bidi: plaintext !important; text-align: start !important; }"
-$cssJson = ConvertTo-Json $cssText -Compress   # -> valid double-quoted JS string literal
-$preload = @"
+$PreloadContent = @'
 try {
-  const css = $cssJson;
+  const css = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }\n.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }\n.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }\n";
+
+  function __pgScan(root) {
+    try {
+      const els = root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption, strong, em, span, div');
+      for (const el of els) {
+        if (el.dataset && el.dataset.pgBidi === '1') continue;
+        let hasFa = false;
+        for (const c of el.childNodes) {
+          if (c.nodeType === 3 && /[\u0600-\u06FF]/.test(c.textContent)) { hasFa = true; break; }
+        }
+        if (hasFa) {
+          el.style.setProperty('unicode-bidi', 'plaintext', 'important');
+          el.style.setProperty('text-align', 'start', 'important');
+          if (el.dataset) el.dataset.pgBidi = '1';
+        }
+      }
+    } catch (e) {}
+  }
+  function __pgRun() { __pgScan(document); if (document.querySelectorAll) { const ifs = document.querySelectorAll('iframe'); } }
   function __pgAdd() {
     try {
       const old = document.getElementById('pg-rtl-style');
@@ -92,15 +106,18 @@ try {
       st.id = 'pg-rtl-style';
       st.textContent = css;
       (document.head || document.documentElement).appendChild(st);
+      __pgScan(document);
     } catch (e) {}
   }
   __pgAdd();
   document.addEventListener('DOMContentLoaded', __pgAdd);
-  setInterval(__pgAdd, 3000);
+  setInterval(__pgAdd, 2000);
+  try { new MutationObserver(function() { __pgScan(document); }).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 } catch (e) {}
-"@
+'@
+
 $PreloadPath = "$env:USERPROFILE\.antigravity-rtl-preload.js"
-$preload | Out-File $PreloadPath -Encoding utf8
+[IO.File]::WriteAllText($PreloadPath, $PreloadContent)   # UTF-8 without BOM
 Log "preload written: $PreloadPath"
 
 # ---------- 3. Patch main.js (session preload registration, v7) ----------
