@@ -76,18 +76,18 @@ Log "fonts ready."
 # ---------- 2. Preload file (the actual CSS injector) ----------
 Log "2/5 Writing renderer preload..."
 $fontStack = "'Vazirmatn', 'IRANSans', sans-serif"
-$css = @"
-* { font-family: $fontStack !important; }
-.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }
-.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }
-p, li, h1, h2, h3, h4, h5, h6, textarea, label, div, span { unicode-bidi: plaintext !important; text-align: start !important; }
-"@
+$cssText = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }" + [char]10 +
+  ".codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }" + [char]10 +
+  ".monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }" + [char]10 +
+  "p, li, h1, h2, h3, h4, h5, h6, textarea, label, div, span { unicode-bidi: plaintext !important; text-align: start !important; }"
+$cssJson = ConvertTo-Json $cssText -Compress   # -> valid double-quoted JS string literal
 $preload = @"
 try {
-  const css = [$(($css -split "`n" | ForEach-Object { "    " + $_.Replace("'", "\'") + "," }) -join "`n")].join(String.fromCharCode(10));
+  const css = $cssJson;
   function __pgAdd() {
     try {
-      if (document.getElementById('pg-rtl-style')) return;
+      const old = document.getElementById('pg-rtl-style');
+      if (old) old.remove();
       const st = document.createElement('style');
       st.id = 'pg-rtl-style';
       st.textContent = css;
@@ -108,12 +108,14 @@ Log "3/5 Patching Antigravity main.js..."
 $MainJs = "$env:LOCALAPPDATA\Programs\Antigravity IDE\resources\app\out\main.js"
 if (-not (Test-Path $MainJs)) { Log "ERROR: $MainJs not found - install path changed?"; exit 1 }
 $main = Get-Content $MainJs -Raw
-if ($main -like "*__pgPreloadPath*") {
-    # older v5/v6 patch present -> strip and re-apply v7 (keeps app code from the marker on)
-    $idx = $main.IndexOf("// Antigravity RTL & Vazirmatn Font Injector")
-    if ($idx -ge 0) { $main = $main.Substring(0, $idx).TrimEnd() }
+$idx = $main.IndexOf("// Antigravity RTL")
+if ($idx -ge 0) {
+    # remove ALL previously appended injector blocks (everything from first marker to EOF)
     Copy-Item $MainJs "$MainJs.bak" -Force -ErrorAction SilentlyContinue
+    $main = $main.Substring(0, $idx).TrimEnd()
+    Set-Content -Path $MainJs -Value $main -Encoding UTF8
 }
+$main = Get-Content $MainJs -Raw
 if ($main -notlike "*__pgPreloadPath*") {
     $inject = @'
 
