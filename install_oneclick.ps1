@@ -88,9 +88,8 @@ try {
   const origin = (location && location.origin) ? location.origin : '';
   const isChatFrame = /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
   const baseCss = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }\n.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }\n.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }\np, li, h1, h2, h3, h4, h5, h6, textarea, label { unicode-bidi: plaintext !important; text-align: start !important; }\n";
-  const chatCss = "html, body { direction: rtl !important; }\np, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption, strong, em,\n[class*='message'], [class*='markdown'], [class*='prose'], [class*='chat'] {\n  direction: rtl !important; text-align: right !important; unicode-bidi: plaintext !important;\n}\nul, ol { padding-right: 1.4em !important; padding-left: 0 !important; }\npre, pre *, code, code *, kbd, samp, .monaco-editor, .monaco-editor *,\n[class*='language-'], [class*='hljs'], [class*='code-block'] {\n  direction: ltr !important; text-align: left !important; unicode-bidi: isolate !important;\n  font-family: Consolas, Menlo, monospace !important;\n}\ntextarea, input, [contenteditable] { direction: rtl; text-align: right; unicode-bidi: plaintext; }\n";
+  const chatCss = "p, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption {\n  unicode-bidi: plaintext !important;\n}\npre, pre *, code, code *, kbd, samp, .monaco-editor, .monaco-editor * {\n  direction: ltr !important; text-align: left !important; unicode-bidi: isolate !important;\n  font-family: Consolas, Menlo, monospace !important;\n}\ntextarea, input, [contenteditable] { unicode-bidi: plaintext; }\n";
 
-  // --- light path: ensure the right style tags exist (cheap, all frames) ---
   function __pgEnsureTags() {
     try {
       let st = document.getElementById('pg-rtl-style');
@@ -104,18 +103,28 @@ try {
     } catch (e) {}
   }
 
-  // --- heavy path: inline safety net, CHAT FRAMES ONLY (small DOM) ---
+  // Targeted: only Persian-bearing TEXT BLOCK elements get direction rtl.
+  const SEL = 'p, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption';
   function __pgScanChat() {
     if (!isChatFrame) return;
     try {
-      const els = document.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th, strong, em, span');
+      const els = document.querySelectorAll(SEL);
       for (const el of els) {
         if (el.dataset && el.dataset.pgBidi === '1') continue;
         if (el.closest && el.closest('pre, code')) continue;
-        if (/[\u0600-\u06FF]/.test(el.textContent || '')) {
-          el.style.setProperty('unicode-bidi', 'plaintext', 'important');
-          if (el.dataset) el.dataset.pgBidi = '1';
+        const txt = el.textContent || '';
+        if (!/[\u0600-\u06FF]/.test(txt)) continue;
+        const latin = (txt.match(/[A-Za-z]/g) || []).length;
+        const persian = (txt.match(/[\u0600-\u06FF]/g) || []).length;
+        el.style.setProperty('unicode-bidi', 'plaintext', 'important');
+        if (persian >= latin) {                      // Persian-dominant block -> right align
+          el.style.setProperty('direction', 'rtl', 'important');
+          el.style.setProperty('text-align', 'right', 'important');
+        } else {                                      // mostly English -> keep LTR
+          el.style.setProperty('direction', 'ltr', 'important');
+          el.style.setProperty('text-align', 'left', 'important');
         }
+        if (el.dataset) el.dataset.pgBidi = '1';
       }
     } catch (e) {}
   }
@@ -125,13 +134,11 @@ try {
   document.addEventListener('DOMContentLoaded', function () { __pgEnsureTags(); __pgScanChat(); });
 
   if (isChatFrame) {
-    // chat-only: watch for new content, throttled
     let t = 0;
     const schedule = function () { if (t) return; t = setTimeout(function () { t = 0; __pgScanChat(); }, 400); };
     try { new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
     setInterval(__pgEnsureTags, 3000);
   } else {
-    // main workbench: very light, tag-only checks (no DOM scanning)
     setInterval(__pgEnsureTags, 5000);
   }
 } catch (e) {}
