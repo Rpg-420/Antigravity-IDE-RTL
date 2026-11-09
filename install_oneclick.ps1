@@ -85,41 +85,51 @@ Log "2/5 Writing renderer preload..."
 $fontStack = "'Vazirmatn', 'IRANSans', sans-serif"
 $PreloadContent = @'
 try {
-  const css = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }\n.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }\n.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }\n";
+  const origin = (location && location.origin) ? location.origin : '';
+  const isChatFrame = /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+  const baseCss = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }\n.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }\n.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }\n";
+  const chatCss = "html, body { direction: rtl !important; }\np, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption, strong, em,\n[class*='message'], [class*='markdown'], [class*='prose'], [class*='chat'] {\n  direction: rtl !important; text-align: right !important; unicode-bidi: plaintext !important;\n}\nul, ol { padding-right: 1.4em !important; padding-left: 0 !important; }\npre, pre *, code, code *, kbd, samp, .monaco-editor, .monaco-editor *,\n[class*='language-'], [class*='hljs'], [class*='code-block'] {\n  direction: ltr !important; text-align: left !important; unicode-bidi: isolate !important;\n  font-family: Consolas, Menlo, monospace !important;\n}\ntextarea, input, [contenteditable] { direction: rtl; text-align: right; unicode-bidi: plaintext; }\n";
 
-  function __pgScan(root) {
+  function __pgAdd() {
     try {
-      const els = root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption, strong, em, span, div');
+      // base font layer
+      let st = document.getElementById('pg-rtl-style');
+      if (!st) {
+        st = document.createElement('style');
+        st.id = 'pg-rtl-style';
+        (document.head || document.documentElement).appendChild(st);
+      }
+      st.textContent = baseCss;
+
+      // chat-frame mirror layer (option B)
+      if (isChatFrame) {
+        let cs = document.getElementById('pg-chat-rtl');
+        if (!cs) {
+          cs = document.createElement('style');
+          cs.id = 'pg-chat-rtl';
+          (document.head || document.documentElement).appendChild(cs);
+        }
+        cs.textContent = chatCss;
+      }
+
+      // paragraph-level safety net for Persian-bearing elements
+      const els = document.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th, strong, em, span, div');
       for (const el of els) {
         if (el.dataset && el.dataset.pgBidi === '1') continue;
-        let hasFa = false;
-        for (const c of el.childNodes) {
-          if (c.nodeType === 3 && /[\u0600-\u06FF]/.test(c.textContent)) { hasFa = true; break; }
-        }
-        if (hasFa) {
+        if (el.closest && el.closest('pre, code, .monaco-editor')) continue;
+        if (/[\u0600-\u06FF]/.test(el.textContent || '')) {
           el.style.setProperty('unicode-bidi', 'plaintext', 'important');
-          el.style.setProperty('text-align', 'start', 'important');
+          if (!isChatFrame) el.style.setProperty('text-align', 'start', 'important');
           if (el.dataset) el.dataset.pgBidi = '1';
         }
       }
     } catch (e) {}
   }
-  function __pgRun() { __pgScan(document); if (document.querySelectorAll) { const ifs = document.querySelectorAll('iframe'); } }
-  function __pgAdd() {
-    try {
-      const old = document.getElementById('pg-rtl-style');
-      if (old) old.remove();
-      const st = document.createElement('style');
-      st.id = 'pg-rtl-style';
-      st.textContent = css;
-      (document.head || document.documentElement).appendChild(st);
-      __pgScan(document);
-    } catch (e) {}
-  }
+
   __pgAdd();
   document.addEventListener('DOMContentLoaded', __pgAdd);
   setInterval(__pgAdd, 2000);
-  try { new MutationObserver(function() { __pgScan(document); }).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  try { new MutationObserver(__pgAdd).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 } catch (e) {}
 '@
 
@@ -140,15 +150,34 @@ if ($idx -ge 0) {
     Set-Content -Path $MainJs -Value $main -Encoding UTF8
 }
 $main = Get-Content $MainJs -Raw
-if ($main -notlike "*__pgPreloadPath*") {
+if ($main -notlike "*pg-inject-frames*") {
     $inject = @'
 
-// Antigravity RTL & Vazirmatn Font Injector (Persian Gravity) v7 - all sessions
+// Antigravity RTL & Vazirmatn Font Injector (Persian Gravity) v10 - frames covered
 import { app as __pgApp, session as __pgSession } from "electron";
 import __pgFsMod from "fs";
 import __pgPathMod from "path";
 const __pgPreloadPath = __pgPathMod.join(process.env.USERPROFILE, ".antigravity-rtl-preload.js");
 const __pgLog = (msg) => { try { __pgFsMod.appendFileSync(__pgPathMod.join(process.env.USERPROFILE, "antigravity-ui.log"), new Date().toISOString() + " " + msg + String.fromCharCode(10)); } catch (e) {} };
+const __pgJs = () => {
+  try { return __pgFsMod.readFileSync(__pgPreloadPath, "utf8"); } catch (e) { return ""; }
+};
+const __pgInjectFrames = (c, tag) => {
+  try {
+    const code = __pgJs();
+    if (!code) return;
+    let count = 0;
+    const walk = (fr) => {
+      try {
+        fr.executeJavaScript(code, true).then(() => {}).catch(() => {});
+        count++;
+      } catch (e) {}
+      try { for (const child of (fr.frames || [])) walk(child); } catch (e) {}
+    };
+    walk(c.mainFrame);
+    __pgLog("pg-inject-frames[" + c.id + "] " + tag + " frames=" + count);
+  } catch (e) { __pgLog("pg-inject-frames err: " + e); }
+};
 const __pgRegister = (ses, tag) => {
   try {
     if (!ses || ses.__pgDone) return; ses.__pgDone = true;
@@ -158,13 +187,22 @@ const __pgRegister = (ses, tag) => {
   } catch (e) { __pgLog("pg-preload err " + tag + ": " + e); }
 };
 __pgApp.on("session-created", (ses) => __pgRegister(ses, "session-created"));
+__pgApp.on("web-contents-created", (_e, c) => {
+  const run = (tag) => { __pgInjectFrames(c, tag); };
+  c.on("dom-ready", () => run("dom-ready"));
+  c.on("did-finish-load", () => run("did-finish-load"));
+  c.on("did-frame-finish-load", () => run("did-frame-finish-load"));
+  c.on("did-navigate", () => run("did-navigate"));
+  c.on("did-navigate-in-page", () => run("did-navigate-in-page"));
+});
+__pgLog("pg-main-evaluated version=10");
 __pgApp.whenReady().then(() => {
   try { __pgRegister(__pgSession.defaultSession, "default"); } catch (e) { __pgLog("default reg err: " + e); }
   try { (__pgSession.getAllSessions ? __pgSession.getAllSessions() : []).forEach((ses, idx) => __pgRegister(ses, "existing-" + idx)); } catch (e) { __pgLog("scan err: " + e); }
 });
 '@
     Add-Content -Path $MainJs -Value $inject
-    Log "main.js patched (v7). backup: main.js.bak"
+    Log "main.js patched (v10). backup: main.js.bak"
 } else {
     Log "main.js already patched."
 }
