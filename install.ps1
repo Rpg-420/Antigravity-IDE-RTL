@@ -249,9 +249,15 @@ $MainJs = "$appRoot\resources\app\out\main.js"
 $main = Get-Content $MainJs -Raw
 $idx = $main.IndexOf("// Antigravity RTL")
 if ($idx -ge 0) {
-    Copy-Item $MainJs "$MainJs.bak" -Force -ErrorAction SilentlyContinue
     $main = $main.Substring(0, $idx).TrimEnd()
     Set-Content -Path $MainJs -Value $main -Encoding UTF8
+}
+# keep a CLEAN backup (never a patched copy) for a flawless uninstall
+$bak = if (Test-Path "$MainJs.bak") { Get-Content "$MainJs.bak" -Raw } else { "" }
+if ($bak -match "Antigravity RTL|pg-inject-frames" -or -not (Test-Path "$MainJs.bak")) {
+    if ((Get-Content $MainJs -Raw) -notmatch "Antigravity RTL") {
+        Copy-Item $MainJs "$MainJs.bak" -Force -ErrorAction SilentlyContinue
+    }
 }
 $main = Get-Content $MainJs -Raw
 if ($main -notlike "*pg-inject-frames*") {
