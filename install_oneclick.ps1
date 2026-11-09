@@ -4,6 +4,7 @@
 #  Run with: PowerShell  (no admin needed)
 #  Re-run any time (also after app updates) - it is idempotent.
 # ============================================================
+param([switch]$PersistReboot)
 $ErrorActionPreference = "Continue"
 $LogFile = "$env:LOCALAPPDATA\Antigravity-RTL\installer.log"
 New-Item -Path (Split-Path $LogFile) -ItemType Directory -Force | Out-Null
@@ -28,43 +29,49 @@ if (Test-Path (Join-Path $BundledDir "Vazirmatn-Regular.ttf")) {
     [PGLoad]::SendMessageTimeout([IntPtr]0xFFFF, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$res) | Out-Null
     Log "bundled Vazirmatn fonts installed."
 }
-# Primary: Vazirmatn (OFL licensed, redistributable) - downloaded from official repo
-$zip = "$env:TEMP\vazirmatn.zip"
-$dir = "$env:TEMP\vazirmatn_extract"
+# Primary: Vazirmatn (OFL). Skip download entirely when already installed.
 $ok = Test-Path (Join-Path $dst "Vazirmatn-Regular.ttf")
-foreach ($url in @(
-    "https://github.com/rastikerdar/vazirmatn/releases/download/v33.003/vazirmatn-v33.003.zip",
-    "https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-Regular.ttf"
-)) {
-    try {
-        if ($url.EndsWith(".zip")) {
-            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 120
-            if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
-            Expand-Archive -Path $zip -DestinationPath $dir -Force
-            Get-ChildItem $dir -Filter "*.ttf" -Recurse | ForEach-Object {
-                $t = Join-Path $dst $_.Name
-                Copy-Item $_.FullName $t -Force -ErrorAction SilentlyContinue
-                [PGLoad]::AddFontResource($t) | Out-Null
-                New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts" -Name ($_.BaseName + " (TrueType)") -Value $_.Name -Force -ErrorAction SilentlyContinue | Out-Null
+if (-not $ok) {
+    $zip = "$env:TEMP\vazirmatn.zip"
+    $dir = "$env:TEMP\vazirmatn_extract"
+    foreach ($url in @(
+        "https://github.com/rastikerdar/vazirmatn/releases/download/v33.003/vazirmatn-v33.003.zip",
+        "https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-Regular.ttf"
+    )) {
+        try {
+            if ($url.EndsWith(".zip")) {
+                Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 120
+                if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
+                Expand-Archive -Path $zip -DestinationPath $dir -Force
+                Get-ChildItem $dir -Filter "*.ttf" -Recurse | ForEach-Object {
+                    $t = Join-Path $dst $_.Name
+                    if (Copy-FontSafe $_.FullName $t) {
+                        [PGLoad]::AddFontResource($t) | Out-Null
+                        New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts" -Name ($_.BaseName + " (TrueType)") -Value $_.Name -Force -ErrorAction SilentlyContinue | Out-Null
+                    }
+                }
+                Remove-Item $zip, $dir -Recurse -Force -ErrorAction SilentlyContinue
+            } else {
+                $tmpT = "$env:TEMP\Vazirmatn-Regular.ttf"
+                Invoke-WebRequest -Uri $url -OutFile $tmpT -UseBasicParsing -TimeoutSec 120
+                $t = Join-Path $dst "Vazirmatn-Regular.ttf"
+                if (Copy-FontSafe $tmpT $t) {
+                    [PGLoad]::AddFontResource($t) | Out-Null
+                    New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts" -Name "Vazirmatn (TrueType)" -Value "Vazirmatn-Regular.ttf" -Force -ErrorAction SilentlyContinue | Out-Null
+                }
             }
-            Remove-Item $zip, $dir -Recurse -Force -ErrorAction SilentlyContinue
-        } else {
-            $t = Join-Path $dst "Vazirmatn-Regular.ttf"
-            Invoke-WebRequest -Uri $url -OutFile $t -UseBasicParsing -TimeoutSec 120
-            [PGLoad]::AddFontResource($t) | Out-Null
-            New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts" -Name "Vazirmatn (TrueType)" -Value "Vazirmatn-Regular.ttf" -Force -ErrorAction SilentlyContinue | Out-Null
-        }
-        $ok = $true; break
-    } catch { Log "font source failed: $url -> $($_.Exception.Message)" }
+            $ok = $true; break
+        } catch { Log "font source failed: $url -> $($_.Exception.Message)" }
+    }
 }
-if (-not $ok) { Log "WARNING: Vazirmatn download failed - trying any Vazirmatn already on disk" }
 
 # Optional bonus: IRANSans, only if the user already has it locally (not redistributable)
 Get-ChildItem "D:\Font\IRANSans" -Filter "IRANSans*.ttf" -ErrorAction SilentlyContinue | ForEach-Object {
     $t = Join-Path $dst $_.Name
-    Copy-Item $_.FullName $t -Force -ErrorAction SilentlyContinue
-    [PGLoad]::AddFontResource($t) | Out-Null
-    New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts" -Name ($_.BaseName + " (TrueType)") -Value $_.Name -Force -ErrorAction SilentlyContinue | Out-Null
+    if (Copy-FontSafe $_.FullName $t) {
+        [PGLoad]::AddFontResource($t) | Out-Null
+        New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts" -Name ($_.BaseName + " (TrueType)") -Value $_.Name -Force -ErrorAction SilentlyContinue | Out-Null
+    }
 }
 
 # Load EVERY Persian font already in the user font dir (covers offline re-runs)
@@ -182,9 +189,24 @@ Copy-Item $PSCommandPath "$env:LOCALAPPDATA\Antigravity-RTL\install_rtl_persist.
 $cmd = "$StartupDir\AntigravityRTLAutoPatch.cmd"
 @"
 @echo off
-start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%LOCALAPPDATA%\Antigravity-RTL\install_rtl_persist.ps1"
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%LOCALAPPDATA%\Antigravity-RTL\install_rtl_persist.ps1" -PersistReboot
 "@ | Out-File $cmd -Encoding ascii
 Log "startup shortcut ready: $cmd"
 
 Log ""
-Log "DONE. Fully close Antigravity IDE (check Task Manager) and reopen it."
+
+if ($PersistReboot) {
+    # after system reboot the single-instance app may be running with pre-patch code;
+    # if it is running, kill it and relaunch so the patch is guaranteed loaded.
+    $exe = "$env:LOCALAPPDATA\Programs\Antigravity IDE\Antigravity IDE.exe"
+    $was = Get-Process "Antigravity IDE" -ErrorAction SilentlyContinue
+    if (-not $was) { $was = @() }
+    if ($was.Count -gt 0) {
+        Log "persist: restarting running Antigravity to load patch..."
+        Get-Process "Antigravity IDE" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 4
+        Start-Process $exe
+        Log "persist: Antigravity relaunched."
+    }
+}
+if (-not $PersistReboot) { Log "DONE. Fully close Antigravity IDE (check Task Manager) and reopen it." }
