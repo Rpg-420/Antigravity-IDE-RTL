@@ -87,49 +87,53 @@ $PreloadContent = @'
 try {
   const origin = (location && location.origin) ? location.origin : '';
   const isChatFrame = /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-  const baseCss = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }\n.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }\n.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }\n";
+  const baseCss = "* { font-family: 'Vazirmatn', 'IRANSans', sans-serif !important; }\n.codicon, .codicon::before, [class*='codicon-'], .seti-icon, .monaco-workbench .icon { font-family: codicon !important; }\n.monaco-editor, .monaco-editor *, .xterm, .xterm * { font-family: Consolas, Menlo, monospace !important; direction: ltr !important; unicode-bidi: normal !important; text-align: left !important; }\np, li, h1, h2, h3, h4, h5, h6, textarea, label { unicode-bidi: plaintext !important; text-align: start !important; }\n";
   const chatCss = "html, body { direction: rtl !important; }\np, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, blockquote, figcaption, strong, em,\n[class*='message'], [class*='markdown'], [class*='prose'], [class*='chat'] {\n  direction: rtl !important; text-align: right !important; unicode-bidi: plaintext !important;\n}\nul, ol { padding-right: 1.4em !important; padding-left: 0 !important; }\npre, pre *, code, code *, kbd, samp, .monaco-editor, .monaco-editor *,\n[class*='language-'], [class*='hljs'], [class*='code-block'] {\n  direction: ltr !important; text-align: left !important; unicode-bidi: isolate !important;\n  font-family: Consolas, Menlo, monospace !important;\n}\ntextarea, input, [contenteditable] { direction: rtl; text-align: right; unicode-bidi: plaintext; }\n";
 
-  function __pgAdd() {
+  // --- light path: ensure the right style tags exist (cheap, all frames) ---
+  function __pgEnsureTags() {
     try {
-      // base font layer
       let st = document.getElementById('pg-rtl-style');
-      if (!st) {
-        st = document.createElement('style');
-        st.id = 'pg-rtl-style';
-        (document.head || document.documentElement).appendChild(st);
-      }
-      st.textContent = baseCss;
-
-      // chat-frame mirror layer (option B)
+      if (!st) { st = document.createElement('style'); st.id = 'pg-rtl-style'; (document.head || document.documentElement).appendChild(st); }
+      if (st.textContent !== baseCss) st.textContent = baseCss;
       if (isChatFrame) {
         let cs = document.getElementById('pg-chat-rtl');
-        if (!cs) {
-          cs = document.createElement('style');
-          cs.id = 'pg-chat-rtl';
-          (document.head || document.documentElement).appendChild(cs);
-        }
-        cs.textContent = chatCss;
+        if (!cs) { cs = document.createElement('style'); cs.id = 'pg-chat-rtl'; (document.head || document.documentElement).appendChild(cs); }
+        if (cs.textContent !== chatCss) cs.textContent = chatCss;
       }
+    } catch (e) {}
+  }
 
-      // paragraph-level safety net for Persian-bearing elements
-      const els = document.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th, strong, em, span, div');
+  // --- heavy path: inline safety net, CHAT FRAMES ONLY (small DOM) ---
+  function __pgScanChat() {
+    if (!isChatFrame) return;
+    try {
+      const els = document.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th, strong, em, span');
       for (const el of els) {
         if (el.dataset && el.dataset.pgBidi === '1') continue;
-        if (el.closest && el.closest('pre, code, .monaco-editor')) continue;
+        if (el.closest && el.closest('pre, code')) continue;
         if (/[\u0600-\u06FF]/.test(el.textContent || '')) {
           el.style.setProperty('unicode-bidi', 'plaintext', 'important');
-          if (!isChatFrame) el.style.setProperty('text-align', 'start', 'important');
           if (el.dataset) el.dataset.pgBidi = '1';
         }
       }
     } catch (e) {}
   }
 
-  __pgAdd();
-  document.addEventListener('DOMContentLoaded', __pgAdd);
-  setInterval(__pgAdd, 2000);
-  try { new MutationObserver(__pgAdd).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  __pgEnsureTags();
+  __pgScanChat();
+  document.addEventListener('DOMContentLoaded', function () { __pgEnsureTags(); __pgScanChat(); });
+
+  if (isChatFrame) {
+    // chat-only: watch for new content, throttled
+    let t = 0;
+    const schedule = function () { if (t) return; t = setTimeout(function () { t = 0; __pgScanChat(); }, 400); };
+    try { new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+    setInterval(__pgEnsureTags, 3000);
+  } else {
+    // main workbench: very light, tag-only checks (no DOM scanning)
+    setInterval(__pgEnsureTags, 5000);
+  }
 } catch (e) {}
 '@
 
